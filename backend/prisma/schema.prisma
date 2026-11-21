@@ -1,0 +1,48 @@
+// Prisma schema: the single source of truth for the database structure.
+// Docs: https://pris.ly/d/prisma-schema
+//
+// Note: PostgreSQL CHECK constraints (non-blank text, source <> destination,
+// driver required once assigned) cannot be written in Prisma's schema language.
+// They live in the SQL of prisma/migrations/0001_init/migration.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Only these 5 values are allowed for status (a real Postgres ENUM).
+enum TripStatus {
+  CREATED
+  ASSIGNED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+
+  @@map("trip_status")
+}
+
+model Trip {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tripNumber     String     @map("trip_number") @db.VarChar(50)
+  source         String     @db.VarChar(255)
+  destination    String     @db.VarChar(255)
+  driverName     String?    @map("driver_name") @db.VarChar(100)
+  status         TripStatus @default(CREATED)
+  idempotencyKey String?    @map("idempotency_key") @db.VarChar(255)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Trip number must be unique (the DB is the final guard, even under races).
+  @@unique([tripNumber], map: "trips_trip_number_unique")
+  // Duplicate-POST protection: one Idempotency-Key can only ever create one trip.
+  @@unique([idempotencyKey], map: "trips_idempotency_key_unique")
+  // GET /trips?status=X  (filter + newest-first sort in one index)
+  @@index([status, createdAt(sort: Desc)], map: "idx_trips_status_created_at")
+  // GET /trips without a filter (newest-first sort)
+  @@index([createdAt(sort: Desc)], map: "idx_trips_created_at")
+  @@map("trips")
+}
